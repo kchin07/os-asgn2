@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "lwp.h"
-#include <scheduler.h>
+#include "scheduler.h"
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -24,84 +24,21 @@ static thread currentProcess = NULL;
 static thread threadHead = NULL;
 static tid_t threadId;
 static context originalSystemContext;
-static struct scheduler rr_scheduler = {NULL, NULL, rr_admit, rr_remove, rr_next};
+static struct scheduler rr_scheduler = {NULL, NULL, 
+                                        rr_admit, rr_remove, rr_next};
 scheduler RoundRobin = &rr_scheduler;
+static scheduler activeScheduler = NULL;
 //--------------------------------------------------------
 
-void overflow_handler(int signum){
-   abort();
-}
-
-void segv_handler(int signum, siginfo_t *info, void* other){
-   abort();
-}
-
-void* create_stack(size_t sizeRequest, void** stackPointer){
-   // allocate space for stack
-   size_t sizeRequestInBytes = sizeRequest*sizeof(tid_t);
-   size_t emptyMemSpace = 2*VIRTUAL_MEM_BLOCK;
-   void* baseAddr = safe_malloc(sizeRequestInBytes + emptyMemSpace);
-
-   // create protected page/memory space
-   void* protectedPage = baseAddr;
-   unsigned int remainder = (uintptr_t)baseAddr % VIRTUAL_MEM_BLOCK;
-   if(remainder){
-      protectedPage= baseAddr + VIRTUAL_MEM_BLOCK - remainder;
-   }
-   
-   // move stack pointer to the bottom of the stack
-   *stackPointer = protectedPage + VIRTUAL_MEM_BLOCK + sizeRequestInBytes;
-
-   // protect memory
-   if( mprotect(baseAddr, VIRTUAL_MEM_BLOCK, PROT_NONE) == -1){
-      protectedPage = NULL;
-      sNode* tempNode;
-      
-      // initialize sig handlers
-      if(!stackList){
-         struct sigaction sa;
-         stack_t signalStack;
-         signalStack.ss_sp = extraStack;
-         signalStack.ss_flags = 0;
-         signalStack.ss_size = STACK_SIZE;
- 
-         if(sigaltstack(&signalStack, NULL)){
-            perror("sigaltstack failure in creating a stack");
-            exit(EXIT_FAILURE);
-         }
-
-         sa.sa_handler = overflow_handler;
-         sigemptyset(&sa.sa_mask);
-         sa.sa_flags = SA_ONSTACK;
-
-         if(sigaction(SIGSTKFLT, &sa, NULL) == -1){
-            perror("sigaction for SIGSTKFLT");
-            exit(EXIT_FAILURE);
-         }
-
-         sa.sa_sigaction = segv_handler;
-         sigemptyset(&sa.sa_mask);
-         sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
-
-         if(sigaction(SIGSEGV, &sa, NULL) == -1){
-            perror("sigaction for SIGSEGV");
-            exit(EXIT_FAILURE);
-         } 
-      }
-
-   }
-   return baseAddr;
-}
-
-
-static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
+tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    tid_t* stackPointer;
    tid_t* basePointer;
 
    thread iter = threadHead;
 
    if(iter == NULL) {
-      threadHead = safe_malloc(sizeof(context));
+      // threadHead = safe_malloc(sizeof(context));
+      threadHead = malloc(sizeof(context));
       threadHead->lib_one = NULL;
       threadHead->lib_two = NULL;
    }
@@ -110,15 +47,19 @@ static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
          iter = iter->lib_two;
       }
 
-      iter->lib_two = safe_malloc(sizeof(context));
+      // iter->lib_two = safe_malloc(sizeof(context));
+      iter->lib_two = malloc(sizeof(context));
       iter->lib_two->lib_one = iter;
       iter->lib_two->lib_two = NULL;
 
       iter = iter->lib_two;
    }
 
-   stackPointer = safe_malloc(sizeof(tid_t) * stackSize);
+   // stackPointer = safe_malloc(sizeof(tid_t) * stackSize);
+   stackPointer = malloc(sizeof(tid_t) * stackSize);
+
    stackPointer += stackSize;
+
 
    *(--stackPointer) = (tid_t)lwp_exit;
    *(--stackPointer) = (tid_t)func;
@@ -132,17 +73,23 @@ static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    // rdi, rsi, rdx, rcx, r8, r9 for arg
    iter->state.fxsave = FPU_INIT;
 
-   RoundRobin->admit(iter);
+   // RoundRobin->admit(iter);
+   activeScheduler->admit(iter);
 
    return iter->tid;
 }
 
-static void lwp_exit() {
+void lwp_exit() {
    SetSP(originalSystemContext.state.rsp);
 
-   thread nextThread = RoundRobin->next;
+   // thread nextThread = RoundRobin->next;
+   thread nextThread = activeScheduler->next;
+
    thread oldThread = nextThread->lib_one;
-   RoundRobin->remove(oldThread);
+
+   // RoundRobin->remove(oldThread);
+   activeScheduler->remove(oldThread);
+
    removeFromLib(oldThread);
 
    if(nextThread != NULL) {
@@ -155,7 +102,7 @@ static void lwp_exit() {
    }
 }
 
-static void removeFromLib(thread victim) {
+void removeFromLib(thread victim) {
    if(victim == threadHead) {
       if(threadHead->lib_two != NULL) {
          threadHead->lib_two->lib_one = NULL;
@@ -177,7 +124,7 @@ static void removeFromLib(thread victim) {
    free(victim);
 }
 
-static tid_t lwp_gettid(){
+tid_t lwp_gettid(){
    if(threadHead != NULL) {
       return threadHead->tid;
    }
@@ -185,10 +132,10 @@ static tid_t lwp_gettid(){
    return NO_THREAD;
 }
 
-static void lwp_yield(){
+void lwp_yield(){
    thread oldThreadHead = threadHead;
-   thread nextThreadHead = RoundRobin->next();
-
+   // thread nextThreadHead = RoundRobin->next();
+   thread nextThreadHead = activeScheduler->next();
 
    if(nextThreadHead != NULL && nextThreadHead != oldThreadHead) {
       threadHead = nextThreadHead;
@@ -196,22 +143,22 @@ static void lwp_yield(){
    }
 }
 
-static void lwp_start(){
+void lwp_start(){
    // start LWP system
    // save original stack and move to one of the lightweight stacks
    if(active){
       fprintf(stderr, "can't start because already active");
    }
    else{
-      currentProcess = ourScheduler->next();
+      currentProcess = activeScheduler->next();
       if(currentProcess){
          active = TRUE;
-         swap_rfiles(originalSystemContext->state, currentProcess->state);
+         swap_rfiles(&(originalSystemContext.state), &(currentProcess->state));
       }
    }
 }
 
-static void lwp_stop(){
+void lwp_stop(){
    // stop the LWP system and restore original stack
    if(threadHead != NULL) {
       swap_rfiles(&(threadHead->state), NULL);
@@ -221,27 +168,27 @@ static void lwp_stop(){
 }
 
 // TODO
-static void lwp_set_scheduler(scheduler fun){
-   scheduler prevSched = ourScheduler;
+void lwp_set_scheduler(scheduler fun){
+   scheduler prevSched = activeScheduler;
    thread tempThread;
    
    if(fun){
-      ourScheduler = fun;
+      activeScheduler = fun;
    }
-   if(fun == ourScheduler){
+   if(fun == activeScheduler){
       return;
    }
    else{
-      ourScheduler = roundRobinScheduler; // temp placeholder for our RRSched
+      activeScheduler = RoundRobin;
    }
 
-   if(ourScheduler->init){
-      ourScheduler->init();
+   if(activeScheduler->init){
+      activeScheduler->init();
    }
 
-   tempThread = prevSched->next()
+   tempThread = prevSched->next();
    while(tempThread){
-      ourScheduler->admit(tempThread);
+      activeScheduler->admit(tempThread);
       prevSched->remove(tempThread);
       tempThread = prevSched->next();
    }
@@ -251,11 +198,12 @@ static void lwp_set_scheduler(scheduler fun){
    }
 }
 
-static void lwp_get_scheduler(void) {
-   return RoundRobin;
+scheduler lwp_get_scheduler(void) {
+   // return RoundRobin;
+   return activeScheduler;
 }
 
-static thread tid2thred(tid_t tid){
+thread tid2thred(tid_t tid){
    thread iter = threadHead;
 
    while(iter->lib_two != NULL) {
