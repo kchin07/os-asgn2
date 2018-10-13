@@ -98,4 +98,8 @@ thread tid2thread(tid_t tid);
 #define save_context(c) (swap_rfiles(c,NULL))
 void swap_rfiles(rfile *, rfile *to);
 
+void removeFromLib(thread victim);
+void *safe_malloc(size_t n);
+
+
 #endif

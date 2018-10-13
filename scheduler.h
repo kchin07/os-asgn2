@@ -8,6 +8,6 @@ void rr_init();
 void rr_shutdown();
 void rr_admit(thread new);
 void rr_remove(thread victim);
-thread next();
+thread rr_next();
 
 #endif

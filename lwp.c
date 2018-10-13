@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "lwp.h"
-#include <scheduler.h>
+#include "scheduler.h"
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -24,8 +24,8 @@ static thread currentProcess = NULL;
 static thread threadHead = NULL;
 static tid_t threadId;
 static context originalSystemContext;
-static struct scheduler rr_scheduler = {NULL, NULL, rr_admit, rr_remove, rr_next};
-scheduler RoundRobin = &rr_scheduler;
+static struct scheduler sched = {NULL, NULL, rr_admit, rr_remove, rr_next};
+scheduler Scheduler = &sched;
 //--------------------------------------------------------
 
 void overflow_handler(int signum){
@@ -36,7 +36,7 @@ void segv_handler(int signum, siginfo_t *info, void* other){
    abort();
 }
 
-static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
+tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    tid_t* stackPointer;
    tid_t* basePointer;
 
@@ -70,21 +70,22 @@ static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    iter->state.rbp = (tid_t)basePointer;
    iter->tid = ++threadId;
    iter->stacksize = stackSize;
-   // TODO
+   // TODO check if multiple args?
    // rdi, rsi, rdx, rcx, r8, r9 for arg
+   iter->state.rdi = *((tid_t *)arg);
    iter->state.fxsave = FPU_INIT;
 
-   RoundRobin->admit(iter);
+   Scheduler->admit(iter);
 
    return iter->tid;
 }
 
-static void lwp_exit() {
+void lwp_exit() {
    SetSP(originalSystemContext.state.rsp);
 
-   thread nextThread = RoundRobin->next;
+   thread nextThread = Scheduler->next();
    thread oldThread = nextThread->lib_one;
-   RoundRobin->remove(oldThread);
+   Scheduler->remove(oldThread);
    removeFromLib(oldThread);
 
    if(nextThread != NULL) {
@@ -97,7 +98,7 @@ static void lwp_exit() {
    }
 }
 
-static void removeFromLib(thread victim) {
+void removeFromLib(thread victim) {
    if(victim == threadHead) {
       if(threadHead->lib_two != NULL) {
          threadHead->lib_two->lib_one = NULL;
@@ -119,7 +120,7 @@ static void removeFromLib(thread victim) {
    free(victim);
 }
 
-static tid_t lwp_gettid(){
+tid_t lwp_gettid(){
    if(threadHead != NULL) {
       return threadHead->tid;
    }
@@ -127,9 +128,9 @@ static tid_t lwp_gettid(){
    return NO_THREAD;
 }
 
-static void lwp_yield(){
+void lwp_yield(){
    thread oldThreadHead = threadHead;
-   thread nextThreadHead = RoundRobin->next();
+   thread nextThreadHead = Scheduler->next();
 
 
    if(nextThreadHead != NULL && nextThreadHead != oldThreadHead) {
@@ -138,67 +139,65 @@ static void lwp_yield(){
    }
 }
 
-// TODO
-static void lwp_start(){
-   // start LWP system
-   // save original stack and move to one of the lightweight stacks
-   if(active){
-      fprintf(stderr, "can't start because already active");
+void lwp_start(){
+   if(active) {
+      return;
    }
-   else{
-      currentProcess = ourScheduler->next();
-      if(currentProcess){
-         active = TRUE;
-         swap_rfiles(originalSystemContext->state, currentProcess->state);
-      }
+
+   // save
+   swap_rfiles(&(originalSystemContext.state), NULL);
+
+   if(threadHead != NULL) {
+      swap_rfiles(NULL, &(threadHead->state));
    }
+
+   active = TRUE;
 }
 
-static void lwp_stop(){
+void lwp_stop(){
+   if(!active) {
+      return;
+   }
+
    // stop the LWP system and restore original stack
    if(threadHead != NULL) {
       swap_rfiles(&(threadHead->state), NULL);
    }
 
    swap_rfiles(&(threadHead->state), &(originalSystemContext.state));
+
+   active = FALSE;
 }
 
-// TODO
-static void lwp_set_scheduler(scheduler fun){
-   scheduler prevSched = ourScheduler;
-   thread tempThread;
-   
-   if(fun){
-      ourScheduler = fun;
+void lwp_set_scheduler(scheduler fun){
+   scheduler oldScheduler = Scheduler;
+
+   if(fun == NULL) {
+      //transfer to RR
+      Scheduler = &sched;
    }
-   if(fun == ourScheduler){
-      return;
-   }
-   else{
-      ourScheduler = roundRobinScheduler; // temp placeholder for our RRSched
+   else {
+      //transfer to fun
+      Scheduler = fun;
    }
 
-   if(ourScheduler->init){
-      ourScheduler->init();
+   Scheduler->init();
+
+   thread iter = oldScheduler->next();
+   while(iter != NULL) {
+      Scheduler->admit(iter);
+      oldScheduler->remove(iter);
+      iter = oldScheduler->next();
    }
 
-   tempThread = prevSched->next()
-   while(tempThread){
-      ourScheduler->admit(tempThread);
-      prevSched->remove(tempThread);
-      tempThread = prevSched->next();
-   }
-   
-   if(prevSched->shutdown){
-      prevSched->shutdown();
-   }
+   oldScheduler->shutdown();
 }
 
-static void lwp_get_scheduler(void) {
-   return RoundRobin;
+scheduler lwp_get_scheduler(void) {
+   return Scheduler;
 }
 
-static thread tid2thred(tid_t tid){
+thread tid2thread(tid_t tid){
    thread iter = threadHead;
 
    while(iter->lib_two != NULL) {
@@ -213,8 +212,7 @@ static thread tid2thred(tid_t tid){
 }
 
 // from S.O.
-void *safe_malloc(size_t n)
-{
+void *safe_malloc(size_t n) {
     void *p = malloc(n);
     if (p == NULL) {
         fprintf(stderr, "Fatal: failed to allocate %zu bytes.\n", n);
