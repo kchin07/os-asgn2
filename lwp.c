@@ -36,64 +36,6 @@ void segv_handler(int signum, siginfo_t *info, void* other){
    abort();
 }
 
-void* create_stack(size_t sizeRequest, void** stackPointer){
-   // allocate space for stack
-   size_t sizeRequestInBytes = sizeRequest*sizeof(tid_t);
-   size_t emptyMemSpace = 2*VIRTUAL_MEM_BLOCK;
-   void* baseAddr = safe_malloc(sizeRequestInBytes + emptyMemSpace);
-
-   // create protected page/memory space
-   void* protectedPage = baseAddr;
-   unsigned int remainder = (uintptr_t)baseAddr % VIRTUAL_MEM_BLOCK;
-   if(remainder){
-      protectedPage= baseAddr + VIRTUAL_MEM_BLOCK - remainder;
-   }
-   
-   // move stack pointer to the bottom of the stack
-   *stackPointer = protectedPage + VIRTUAL_MEM_BLOCK + sizeRequestInBytes;
-
-   // protect memory
-   if( mprotect(baseAddr, VIRTUAL_MEM_BLOCK, PROT_NONE) == -1){
-      protectedPage = NULL;
-      sNode* tempNode;
-      
-      // initialize sig handlers
-      if(!stackList){
-         struct sigaction sa;
-         stack_t signalStack;
-         signalStack.ss_sp = extraStack;
-         signalStack.ss_flags = 0;
-         signalStack.ss_size = STACK_SIZE;
- 
-         if(sigaltstack(&signalStack, NULL)){
-            perror("sigaltstack failure in creating a stack");
-            exit(EXIT_FAILURE);
-         }
-
-         sa.sa_handler = overflow_handler;
-         sigemptyset(&sa.sa_mask);
-         sa.sa_flags = SA_ONSTACK;
-
-         if(sigaction(SIGSTKFLT, &sa, NULL) == -1){
-            perror("sigaction for SIGSTKFLT");
-            exit(EXIT_FAILURE);
-         }
-
-         sa.sa_sigaction = segv_handler;
-         sigemptyset(&sa.sa_mask);
-         sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
-
-         if(sigaction(SIGSEGV, &sa, NULL) == -1){
-            perror("sigaction for SIGSEGV");
-            exit(EXIT_FAILURE);
-         } 
-      }
-
-   }
-   return baseAddr;
-}
-
-
 static tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    tid_t* stackPointer;
    tid_t* basePointer;
@@ -196,6 +138,7 @@ static void lwp_yield(){
    }
 }
 
+// TODO
 static void lwp_start(){
    // start LWP system
    // save original stack and move to one of the lightweight stacks
