@@ -18,7 +18,6 @@ void rr_admit(thread new) {
       head = new;
       new->sched_one = NULL;
       new->sched_two = NULL;
-      return;
    }
    else {
       thread iter = head;
