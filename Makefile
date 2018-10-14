@@ -58,3 +58,15 @@ numbermain.o: lwp.h
 pub:
 	scp $(PUBFILES) $(TARGET)
 
+liblwp.so: lwp.o scheduler.o magic64.o
+	$(CC) $(CFLAGS) -fPIC -shared -o $@ lwp.o scheduler.o magic64.o
+
+scheduler.o: scheduler.c scheduler.h
+	$(CC) $(CFLAGS) -fPIC -c -o scheduler.o scheduler.c
+
+lwp.o: lwp.c lwp.h
+	$(CC) $(CFLAGS) -fPIC -c -o lwp.o lwp.c
+
+magic64.o: magic64.S
+	$(CC) $(CFLAGS) -o magic64.o -c magic64.S
+

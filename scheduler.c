@@ -1,5 +1,5 @@
 #include "scheduler.h"
-#include "lwp.h"
+#include <lwp.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -34,7 +34,7 @@ void rr_admit(thread new) {
 void rr_remove(thread victim) {
    if(head == victim) {
       head = head->sched_two;
-      head->shed_one = NULL;
+      head->sched_one = NULL;
    }
 
    if(victim->sched_one) {
