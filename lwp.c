@@ -7,8 +7,6 @@
 
 #define VIRTUAL_MEM_BLOCK (1<<12)
 #define STACK_SIZE (1<<16)
-#define FALSE 0
-#define TRUE 1
 
 typedef struct stackNode {
    void* protectedStackBase;
@@ -25,21 +23,20 @@ static struct scheduler sched = {NULL, NULL, rr_admit, rr_remove, rr_next};
 scheduler Scheduler = &sched;
 //--------------------------------------------------------
 
-void overflow_handler(int signum){
-   abort();
-}
-
-void segv_handler(int signum, siginfo_t *info, void* other){
-   abort();
-}
-
 tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    thread iter = threadHead;
 
    if(iter == NULL) {
+/*    
+      threadHead = safe_malloc(sizeof(context));
+      threadHead->lib_one = NULL;
+      threadHead->lib_two = NULL;
+*/
       iter = safe_malloc(sizeof(context));
-      iter->lib_one = NULL;
+      iter->lib_one = NULL; 
       iter->lib_two = NULL;
+      threadHead = iter;
+
    }
    else {
       while(iter->lib_two != NULL) {
@@ -72,8 +69,8 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    iter->state.fxsave = FPU_INIT;
 */
 
-   tid_t* newStack = safe_malloc(sizeof(tid_t) * stackSize);
-   tid_t* sp = newStack + stackSize;
+   tid_t* newStack = safe_malloc(sizeof(tid_t) * stackSize * 8);
+   tid_t* sp = newStack + (stackSize * 8);
    *(--sp) = (tid_t)lwp_exit;
    *(--sp) = (tid_t)func;
    *(--sp) = (tid_t)0xBADBEEEF;
@@ -101,32 +98,13 @@ void lwp_exit() {
 
    if(nextThread != NULL) {
       threadHead = nextThread;
-      // swap_rfiles(NULL, &(threadHead->state));
-      load_context(&threadHead->state);
+      swap_rfiles(NULL, &(threadHead->state));
    }
    else {
       active = FALSE;
       threadHead = NULL;
-      // swap_rfiles(NULL, &(originalSystemContext.state));
-      load_context(&originalSystemContext.state);
+      swap_rfiles(NULL, &(originalSystemContext.state));
    }
-/*
-   fprintf(stderr, "AA");
-   Scheduler->remove(threadHead);
-   thread nextThread = Scheduler->next();
-   fprintf(stderr, "BB");
-
-   removeFromLib(threadHead);
-   threadHead = nextThread;
-   fprintf(stderr, "CC");
-
-   if(threadHead){
-      load_context(&threadHead->state);
-   }
-   else{
-      load_context(&originalSystemContext.state);
-   }
-*/
 }
 
 void removeFromLib(thread victim) {
@@ -174,15 +152,21 @@ void lwp_start(){
    if(active) {
       return;
    }
-
+/*
    // save
    swap_rfiles(&(originalSystemContext.state), NULL);
-
+   threadHead = Scheduler->next();
    if(threadHead != NULL) {
+      active = TRUE;
       swap_rfiles(NULL, &(threadHead->state));
    }
+*/
 
-   active = TRUE;
+   threadHead = Scheduler->next();
+   if(threadHead){
+      active = TRUE;
+      swap_rfiles(&(originalSystemContext.state), &(threadHead->state));
+   }
 }
 
 void lwp_stop(){
@@ -209,7 +193,7 @@ void lwp_set_scheduler(scheduler fun){
    }
    else {
       //transfer to fun
-      Scheduler = fun;
+      Scheduler = &fun;
    }
 
    Scheduler->init();
