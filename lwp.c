@@ -91,39 +91,12 @@ void lwp_exit() {
 
    SetSP(originalSystemContext.rsp);
 
-   thread nextThread = Scheduler->next();
-   thread oldThread = nextThread->lib_one;
-   Scheduler->remove(oldThread);
-//   removeFromLib(oldThread, nextThread);
-   removeFromLib(oldThread);
-
-}
-
-void removeFromLib(thread victim) {
-/*
-   if(victim == threadHead) {
-      if(threadHead->lib_two != NULL) {
-         threadHead->lib_two->lib_one = NULL;
-         threadHead = threadHead->lib_two;
-      }
-      else {
-         threadHead = NULL;
-      }
-   }
-   else {
-      if(victim->lib_one != NULL) {
-         victim->lib_one->lib_two = victim->lib_two;
-      }
-      if(victim->lib_two != NULL) {
-         victim->lib_two->lib_one = victim->lib_one;
-      }
-   }
-
-   free(victim);
-*/
-
    Scheduler->remove(threadHead);
    thread nextThread = Scheduler->next();
+   loadNextThread(nextThread);
+}
+
+void loadNextThread(thread nextThread) {
 
    free(threadHead->stack);
 
