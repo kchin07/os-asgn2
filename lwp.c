@@ -19,11 +19,11 @@ typedef struct stackNode {
 //--------------------------------------------------------
 static sNode* stackList=NULL;
 static char extraStack[STACK_SIZE];
-static char active = FALSE;
+static int active = FALSE;
 static thread currentProcess = NULL;
 static thread threadHead = NULL;
 static tid_t threadId;
-static context originalSystemContext;
+static rfile originalState;
 static struct scheduler sched = {NULL, NULL, rr_admit, rr_remove, rr_next};
 scheduler Scheduler = &sched;
 //--------------------------------------------------------
@@ -46,6 +46,7 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       threadHead = safe_malloc(sizeof(context));
       threadHead->lib_one = NULL;
       threadHead->lib_two = NULL;
+      iter = threadHead;
    }
    else {
       while(iter->lib_two != NULL) {
@@ -59,8 +60,8 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       iter = iter->lib_two;
    }
 
-   stackPointer = safe_malloc(sizeof(tid_t) * stackSize);
-   stackPointer += stackSize;
+   iter->stack = safe_malloc(sizeof(tid_t) * stackSize);
+   stackPointer = iter->stack + stackSize;
 
    *(--stackPointer) = (tid_t)lwp_exit;
    *(--stackPointer) = (tid_t)func;
@@ -81,7 +82,7 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
 }
 
 void lwp_exit() {
-   SetSP(originalSystemContext.state.rsp);
+   SetSP(originalState.rsp);
 
    thread nextThread = Scheduler->next();
    thread oldThread = nextThread->lib_one;
@@ -94,7 +95,7 @@ void lwp_exit() {
    }
    else {
       threadHead = NULL;
-      swap_rfiles(NULL, &(originalSystemContext.state));
+      swap_rfiles(NULL, &(originalState));
    }
 }
 
@@ -145,10 +146,15 @@ void lwp_start(){
    }
 
    // save
-   swap_rfiles(&(originalSystemContext.state), NULL);
+   swap_rfiles(&(originalState), NULL);
+
+   threadHead = Scheduler->next();
 
    if(threadHead != NULL) {
       swap_rfiles(NULL, &(threadHead->state));
+   }
+   else {
+      swap_rfiles(NULL, &(originalState));
    }
 
    active = TRUE;
@@ -164,7 +170,7 @@ void lwp_stop(){
       swap_rfiles(&(threadHead->state), NULL);
    }
 
-   swap_rfiles(&(threadHead->state), &(originalSystemContext.state));
+   swap_rfiles(&(threadHead->state), &(originalState));
 
    active = FALSE;
 }
