@@ -18,7 +18,7 @@ typedef struct stackNode {
 static char active = FALSE;
 static thread threadHead = NULL;
 static tid_t threadId;
-static context originalSystemContext;
+static rfile originalSystemContext;
 static struct scheduler sched = {NULL, NULL, rr_admit, rr_remove, rr_next};
 scheduler Scheduler = &sched;
 //--------------------------------------------------------
@@ -89,25 +89,18 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
 
 void lwp_exit() {
 
-   SetSP(originalSystemContext.state.rsp);
+   SetSP(originalSystemContext.rsp);
 
    thread nextThread = Scheduler->next();
    thread oldThread = nextThread->lib_one;
    Scheduler->remove(oldThread);
+//   removeFromLib(oldThread, nextThread);
    removeFromLib(oldThread);
 
-   if(nextThread != NULL) {
-      threadHead = nextThread;
-      swap_rfiles(NULL, &(threadHead->state));
-   }
-   else {
-      active = FALSE;
-      threadHead = NULL;
-      swap_rfiles(NULL, &(originalSystemContext.state));
-   }
 }
 
 void removeFromLib(thread victim) {
+/*
    if(victim == threadHead) {
       if(threadHead->lib_two != NULL) {
          threadHead->lib_two->lib_one = NULL;
@@ -127,6 +120,26 @@ void removeFromLib(thread victim) {
    }
 
    free(victim);
+*/
+
+   Scheduler->remove(threadHead);
+   thread nextThread = Scheduler->next();
+
+   free(threadHead->stack);
+
+   free(threadHead);
+   
+   threadHead = nextThread;
+
+   if(nextThread != NULL) {
+      threadHead = nextThread;
+      swap_rfiles(NULL, &(threadHead->state));
+   }
+   else {
+      active = FALSE;
+      threadHead = NULL;
+      swap_rfiles(NULL, &(originalSystemContext));
+   }
 }
 
 tid_t lwp_gettid(){
@@ -165,7 +178,7 @@ void lwp_start(){
    threadHead = Scheduler->next();
    if(threadHead){
       active = TRUE;
-      swap_rfiles(&(originalSystemContext.state), &(threadHead->state));
+      swap_rfiles(&(originalSystemContext), &(threadHead->state));
    }
 }
 
@@ -179,7 +192,7 @@ void lwp_stop(){
       swap_rfiles(&(threadHead->state), NULL);
    }
 
-   swap_rfiles(&(threadHead->state), &(originalSystemContext.state));
+   swap_rfiles(&(threadHead->state), &(originalSystemContext));
 
    active = FALSE;
 }
@@ -193,7 +206,7 @@ void lwp_set_scheduler(scheduler fun){
    }
    else {
       //transfer to fun
-      Scheduler = &fun;
+      Scheduler = fun;
    }
 
    Scheduler->init();
