@@ -17,10 +17,7 @@ typedef struct stackNode {
 } sNode;
 
 //--------------------------------------------------------
-static sNode* stackList=NULL;
-static char extraStack[STACK_SIZE];
 static char active = FALSE;
-static thread currentProcess = NULL;
 static thread threadHead = NULL;
 static tid_t threadId;
 static context originalSystemContext;
@@ -37,15 +34,12 @@ void segv_handler(int signum, siginfo_t *info, void* other){
 }
 
 tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
-   tid_t* stackPointer;
-   tid_t* basePointer;
-
    thread iter = threadHead;
 
    if(iter == NULL) {
-      threadHead = safe_malloc(sizeof(context));
-      threadHead->lib_one = NULL;
-      threadHead->lib_two = NULL;
+      iter = safe_malloc(sizeof(context));
+      iter->lib_one = NULL;
+      iter->lib_two = NULL;
    }
    else {
       while(iter->lib_two != NULL) {
@@ -59,6 +53,7 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       iter = iter->lib_two;
    }
 
+/*
    stackPointer = safe_malloc(sizeof(tid_t) * stackSize);
    stackPointer += stackSize;
 
@@ -66,6 +61,7 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    *(--stackPointer) = (tid_t)func;
 
    basePointer = --stackPointer;
+
    iter->state.rsp = (tid_t)stackPointer;
    iter->state.rbp = (tid_t)basePointer;
    iter->tid = ++threadId;
@@ -74,13 +70,28 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    // rdi, rsi, rdx, rcx, r8, r9 for arg
    iter->state.rdi = *((tid_t *)arg);
    iter->state.fxsave = FPU_INIT;
+*/
 
+   tid_t* newStack = safe_malloc(sizeof(tid_t) * stackSize);
+   tid_t* sp = newStack + stackSize;
+   *(--sp) = (tid_t)lwp_exit;
+   *(--sp) = (tid_t)func;
+   *(--sp) = (tid_t)0xBADBEEEF;
+
+   iter->tid = ++threadId;
+   iter->stack = newStack;
+   iter->stacksize = stackSize;
+   iter->state.rdi = (tid_t)arg;
+   iter->state.rsp = (tid_t)sp;
+   iter->state.rbp = (tid_t)sp;
+   iter->state.fxsave = FPU_INIT;
+   
    Scheduler->admit(iter);
-
    return iter->tid;
 }
 
 void lwp_exit() {
+
    SetSP(originalSystemContext.state.rsp);
 
    thread nextThread = Scheduler->next();
@@ -90,12 +101,32 @@ void lwp_exit() {
 
    if(nextThread != NULL) {
       threadHead = nextThread;
-      swap_rfiles(NULL, &(threadHead->state));
+      // swap_rfiles(NULL, &(threadHead->state));
+      load_context(&threadHead->state);
    }
    else {
+      active = FALSE;
       threadHead = NULL;
-      swap_rfiles(NULL, &(originalSystemContext.state));
+      // swap_rfiles(NULL, &(originalSystemContext.state));
+      load_context(&originalSystemContext.state);
    }
+/*
+   fprintf(stderr, "AA");
+   Scheduler->remove(threadHead);
+   thread nextThread = Scheduler->next();
+   fprintf(stderr, "BB");
+
+   removeFromLib(threadHead);
+   threadHead = nextThread;
+   fprintf(stderr, "CC");
+
+   if(threadHead){
+      load_context(&threadHead->state);
+   }
+   else{
+      load_context(&originalSystemContext.state);
+   }
+*/
 }
 
 void removeFromLib(thread victim) {
