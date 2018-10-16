@@ -5,19 +5,13 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
-#define VIRTUAL_MEM_BLOCK (1<<12)
-#define STACK_SIZE (1<<16)
 
-typedef struct stackNode {
-   void* protectedStackBase;
-   void* protectedPageBase;
-   struct stackNode** next;
-} sNode;
 
 //--------------------------------------------------------
 static char active = FALSE;
 static thread threadHead = NULL;
-static tid_t threadId;
+static thread realHead = NULL;
+static tid_t threadId = 0;
 static rfile originalSystemContext;
 static struct scheduler sched = {NULL, NULL, rr_admit, rr_remove, rr_next};
 scheduler Scheduler = &sched;
@@ -31,16 +25,15 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       iter->lib_one = NULL; 
       iter->lib_two = NULL;
       threadHead = iter;
+      realHead = iter;
    }
    else {
       while(iter->lib_two != NULL) {
          iter = iter->lib_two;
       }
-
       iter->lib_two = safe_malloc(sizeof(context));
       iter->lib_two->lib_one = iter;
       iter->lib_two->lib_two = NULL;
-
       iter = iter->lib_two;
    }
 
@@ -57,7 +50,6 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    iter->state.rsp = (tid_t)sp;
    iter->state.rbp = (tid_t)sp;
    iter->state.fxsave = FPU_INIT;
-   
    Scheduler->admit(iter);
    return iter->tid;
 }
@@ -162,7 +154,7 @@ scheduler lwp_get_scheduler(void) {
 }
 
 thread tid2thread(tid_t tid){
-   thread iter = threadHead;
+   thread iter = realHead;
 
    while(iter) {
       if(iter->tid == tid) {
