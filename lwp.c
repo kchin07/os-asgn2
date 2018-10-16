@@ -97,14 +97,14 @@ tid_t lwp_gettid(){
 }
 
 void lwp_yield(){
-   thread oldThreadHead = threadHead;
-   thread nextThreadHead = Scheduler->next();
+   thread oldThread = threadHead;
+   threadHead = Scheduler->next();
 
-
-   if(nextThreadHead != NULL && nextThreadHead != oldThreadHead) {
-      threadHead = nextThreadHead;
-      swap_rfiles(&(oldThreadHead->state), &(threadHead->state));
+   if(!threadHead){
+      swap_rfiles(&(oldThread->state), &(originalSystemContext));
    }
+   swap_rfiles(&(oldThread->state), &(threadHead->state));
+
 }
 
 void lwp_start(){
