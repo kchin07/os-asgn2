@@ -27,16 +27,10 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    thread iter = threadHead;
 
    if(iter == NULL) {
-/*    
-      threadHead = safe_malloc(sizeof(context));
-      threadHead->lib_one = NULL;
-      threadHead->lib_two = NULL;
-*/
       iter = safe_malloc(sizeof(context));
       iter->lib_one = NULL; 
       iter->lib_two = NULL;
       threadHead = iter;
-
    }
    else {
       while(iter->lib_two != NULL) {
@@ -88,20 +82,18 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
 }
 
 void lwp_exit() {
-
    SetSP(originalSystemContext.rsp);
+   loadNextThread();
+}
+
+void loadNextThread() {
 
    Scheduler->remove(threadHead);
    thread nextThread = Scheduler->next();
-   loadNextThread(nextThread);
-}
-
-void loadNextThread(thread nextThread) {
 
    free(threadHead->stack);
-
    free(threadHead);
-   
+
    threadHead = nextThread;
 
    if(nextThread != NULL) {
@@ -138,15 +130,6 @@ void lwp_start(){
    if(active) {
       return;
    }
-/*
-   // save
-   swap_rfiles(&(originalSystemContext.state), NULL);
-   threadHead = Scheduler->next();
-   if(threadHead != NULL) {
-      active = TRUE;
-      swap_rfiles(NULL, &(threadHead->state));
-   }
-*/
 
    threadHead = Scheduler->next();
    if(threadHead){
@@ -159,15 +142,9 @@ void lwp_stop(){
    if(!active) {
       return;
    }
-
-   // stop the LWP system and restore original stack
-   if(threadHead != NULL) {
-      swap_rfiles(&(threadHead->state), NULL);
-   }
-
-   swap_rfiles(&(threadHead->state), &(originalSystemContext));
-
    active = FALSE;
+   // stop the LWP system and restore original stack
+   swap_rfiles(&(threadHead->state), &(originalSystemContext));
 }
 
 void lwp_set_scheduler(scheduler fun){
@@ -181,8 +158,10 @@ void lwp_set_scheduler(scheduler fun){
       //transfer to fun
       Scheduler = fun;
    }
-
-   Scheduler->init();
+   
+   if(Scheduler->init){
+      Scheduler->init();
+   }
 
    thread iter = oldScheduler->next();
    while(iter != NULL) {
