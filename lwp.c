@@ -20,6 +20,7 @@ scheduler Scheduler = &sched;
 tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    thread iter = threadHead;
 
+   // create thread
    if(iter == NULL) {
       iter = safe_malloc(sizeof(context));
       iter->lib_one = NULL; 
@@ -37,6 +38,7 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       iter = iter->lib_two;
    }
 
+   // set up stack
    tid_t* newStack = safe_malloc(sizeof(tid_t) * stackSize * 8);
    tid_t* sp = newStack + (stackSize * 8);
    *(--sp) = (tid_t)lwp_exit;
@@ -50,7 +52,10 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
    iter->state.rsp = (tid_t)sp;
    iter->state.rbp = (tid_t)sp;
    iter->state.fxsave = FPU_INIT;
+
+   // call scheduler to admit new thread
    Scheduler->admit(iter);
+
    return iter->tid;
 }
 
@@ -60,19 +65,18 @@ void lwp_exit() {
 }
 
 void loadNextThread() {
-
+   // remove head from scheduler
    Scheduler->remove(threadHead);
    thread nextThread = Scheduler->next();
 
    free(threadHead->stack);
    free(threadHead);
 
-   threadHead = nextThread;
-
    if(nextThread != NULL) {
       threadHead = nextThread;
       swap_rfiles(NULL, &(threadHead->state));
    }
+   // if no next head, restore state
    else {
       active = FALSE;
       threadHead = NULL;
@@ -138,6 +142,7 @@ void lwp_set_scheduler(scheduler fun){
 
 
    thread iter = oldScheduler->next();
+   // transfer
    while(iter != NULL) {
       oldScheduler->remove(iter);      
       Scheduler->admit(iter);
@@ -167,7 +172,7 @@ thread tid2thread(tid_t tid){
    return NULL;
 }
 
-// from S.O.
+// from S.O.; error handling malloc
 void *safe_malloc(size_t n) {
     void *p = malloc(n);
     if (p == NULL) {

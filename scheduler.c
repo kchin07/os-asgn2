@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+
+// RoundRobin scheduler; uses a circular buffer
+
 static thread head = NULL;
 static char runNext = FALSE;
 
