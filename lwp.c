@@ -139,18 +139,22 @@ void lwp_set_scheduler(scheduler fun){
       //transfer to fun
       Scheduler = fun;
    }
-/*   
-   Scheduler->init();
-*/
+
+   if(Scheduler->init){
+      Scheduler->init();
+   }    
+
+
    thread iter = oldScheduler->next();
    while(iter != NULL) {
+      oldScheduler->remove(iter);      
       Scheduler->admit(iter);
-      oldScheduler->remove(iter);
       iter = oldScheduler->next();
    }
-/*
-   oldScheduler->shutdown();
-*/
+
+   if(oldScheduler->shutdown){
+      oldScheduler->shutdown();
+   }
 }
 
 scheduler lwp_get_scheduler(void) {
@@ -160,7 +164,7 @@ scheduler lwp_get_scheduler(void) {
 thread tid2thread(tid_t tid){
    thread iter = threadHead;
 
-   while(iter->lib_two != NULL) {
+   while(iter) {
       if(iter->tid == tid) {
          return iter;
       }
