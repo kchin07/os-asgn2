@@ -44,25 +44,6 @@ tid_t lwp_create(lwpfun func, void* arg, size_t stackSize){
       iter = iter->lib_two;
    }
 
-/*
-   stackPointer = safe_malloc(sizeof(tid_t) * stackSize);
-   stackPointer += stackSize;
-
-   *(--stackPointer) = (tid_t)lwp_exit;
-   *(--stackPointer) = (tid_t)func;
-
-   basePointer = --stackPointer;
-
-   iter->state.rsp = (tid_t)stackPointer;
-   iter->state.rbp = (tid_t)basePointer;
-   iter->tid = ++threadId;
-   iter->stacksize = stackSize;
-   // TODO check if multiple args?
-   // rdi, rsi, rdx, rcx, r8, r9 for arg
-   iter->state.rdi = *((tid_t *)arg);
-   iter->state.fxsave = FPU_INIT;
-*/
-
    tid_t* newStack = safe_malloc(sizeof(tid_t) * stackSize * 8);
    tid_t* sp = newStack + (stackSize * 8);
    *(--sp) = (tid_t)lwp_exit;
@@ -142,14 +123,14 @@ void lwp_stop(){
    if(!active) {
       return;
    }
-   active = FALSE;
    // stop the LWP system and restore original stack
+   active = FALSE;
    swap_rfiles(&(threadHead->state), &(originalSystemContext));
 }
 
 void lwp_set_scheduler(scheduler fun){
    scheduler oldScheduler = Scheduler;
-
+   
    if(fun == NULL) {
       //transfer to RR
       Scheduler = &sched;
@@ -158,19 +139,18 @@ void lwp_set_scheduler(scheduler fun){
       //transfer to fun
       Scheduler = fun;
    }
-   
-   if(Scheduler->init){
-      Scheduler->init();
-   }
-
+/*   
+   Scheduler->init();
+*/
    thread iter = oldScheduler->next();
    while(iter != NULL) {
       Scheduler->admit(iter);
       oldScheduler->remove(iter);
       iter = oldScheduler->next();
    }
-
+/*
    oldScheduler->shutdown();
+*/
 }
 
 scheduler lwp_get_scheduler(void) {
